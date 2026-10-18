@@ -1,6 +1,6 @@
 # ESG Disclosure Tool · ESG 报告编制工具
 
-**简体中文** · [English](./README.md) · [安装配置](./SETUP.zh-CN.md) · [架构说明](./docs/architecture.zh-CN.md)
+[中文首页](./README.md) · [English](./README.en.md) · [安装配置](./SETUP.zh-CN.md) · [架构说明](./docs/architecture.zh-CN.md)
 
 这是一个本机部署、单用户使用的 ESG / 可持续发展报告编制 Web 工作台，基于
 [Dexter-Yao/sustainability-workbench](https://github.com/Dexter-Yao/sustainability-workbench) 改造，
