@@ -1,285 +1,334 @@
-# Sustainability Workbench
+# ESG Disclosure Tool
 
-**Open-source, self-hosted AI drafting for ESG and sustainability reports — HKEX and China A-share
-disclosure rules, exported to Word.**
+[简体中文](./README.zh-CN.md) · **English** · [Setup](./SETUP.md) · [Architecture](./docs/architecture.md)
 
-**English** · [简体中文](./README.zh-CN.md) · [Setup](./SETUP.md) ·
-[Architecture](./docs/architecture.md) · [Handbook](./docs/handbook/README.md) (Chinese)
+A local, single-user web workbench for preparing ESG and sustainability report drafts. This repository
+is adapted from [Dexter-Yao/sustainability-workbench](https://github.com/Dexter-Yao/sustainability-workbench)
+and retains the MIT license. The application still displays **Sustainability Workbench**; its Python
+package and environment-variable prefix remain `sustainability_desk` and `SUSTAINABILITY_DESK_`.
 
-Sustainability Workbench is an open-source (MIT) web application that drafts ESG and sustainability
-reports with large language models (LLMs) and exports them to Word (.docx). It writes section by
-section against a disclosure standard — the HKEX Environmental, Social and Governance Reporting
-Code, or the sustainability reporting guidelines of the Shanghai, Shenzhen and Beijing stock
-exchanges — drafting from the company information, metrics and documents you provide, and it shows
-which of your files and answers each block of text drew on. It runs on your own machine, with Azure
-OpenAI or any OpenAI-compatible model, including one you host yourself.
+The current code combines structured company inputs, materiality assessment, quantitative data,
+questionnaire answers or uploaded documents, AI drafting, paragraph revision and Word delivery. This
+branch also includes a **backend chapter-authoring layer**: a chapter ledger, queued chapter batches,
+and chapter work-copy export/read-back. Those chapter APIs are **not yet connected to the frontend**.
 
-It is built for the people who prepare these reports: in-house reporting teams at companies of any
-size, and the consultants and accounting firms who do it on their behalf.
+## What is available
 
-![The report body with its content-sources panel](./docs/images/report-provenance.en.png)
-
-*Generated prose with its sources on the right — which uploaded file supported this block, which
-questions you answered, and what the generation run did.*
-
-It drafts; it does not assure. What comes out is a draft for professional review — not an
-assurance opinion, not a compliance guarantee. Someone still has to read it and sign it off.
-
-## Supported disclosure standards
-
-Rules and language live in **knowledge packages** — one package per rule set per language. You pick
-one when you create a report.
-
-| Package / language | Standard |
+| Capability | Current implementation |
 |---|---|
-| `hkex_en`<br>English | HKEX Listing Rules [Appendix C2, *Environmental, Social and Governance Reporting Code*](https://en-rules.hkex.com.hk/rulebook/appendix-c2-environmental-social-and-governance-reporting-code-0) — the version effective 1 January 2025, including the Part D climate-related disclosures |
-| `hkex_zh_hant`<br>Traditional Chinese | 香港聯合交易所《證券上市規則》[附錄 C2《環境、社會及管治報告守則》](https://cn-rules.hkex.com.hk/%E8%A6%8F%E5%89%87%E6%89%8B%E5%86%8A/%E9%99%84%E9%8C%84-c2-%E3%80%8A%E7%92%B0%E5%A2%83%E3%80%81%E7%A4%BE%E6%9C%83%E5%8F%8A%E7%AE%A1%E6%B2%BB%E5%A0%B1%E5%91%8A%E5%AE%88%E5%89%87%E3%80%8B) — the same Code, with the same structure as `hkex_en` |
-| `sse_zh_hans`<br>Simplified Chinese | [Shanghai Stock Exchange Self-Regulatory Guidelines for Listed Companies No. 14 — Sustainability Report (Trial)](https://www.sse.com.cn/lawandrules/sselawsrules2025/stocks/mainipo/c/c_20250516_10779150.shtml) (《上海证券交易所上市公司自律监管指引第14号——可持续发展报告（试行）》). A company listed in Shenzhen or Beijing names its own exchange's guideline — SZSE No. 17 or BSE No. 11 — as the basis instead |
+| Report preparation | Browser pages for company information, materiality scoring, quantitative metrics and a report-level choice between questions and document uploads; spreadsheet templates/imports support structured input. |
+| Material processing | Local parsing of PDF, DOCX, XLSX and PPTX; File Agent dossiers, image-material analysis and scope-specific Mapping. Scanned PDF pages require the optional OCR dependencies. |
+| Report generation | The browser queues whole-report generation, polls progress and downloads artifacts. A separate worker processes the jobs. |
+| Review and editing | The report document page supports paragraph/table editing, content-source inspection and whole-section rewriting. |
+| Final delivery | A deterministic diagnostic gate controls export. Formal and review DOCX outputs use the report renderer; LibreOffice optionally pre-computes TOC page numbers. |
+| Chapter authoring | Backend APIs and worker support chapter progress, continuation/rewrite, cancellation and lifecycle state. No chapter board is wired into the current frontend. |
+| Chapter work copies | Backend APIs expose Markdown plus a manifest, and DOCX export/read-back through GenOffice. Read-back returns paragraph-level proposals; it does not apply them to the report. |
 
-The exchange standards serve as the structure whether or not you are listed. Adding an exchange or
-a language means adding a package, not changing the generation pipeline.
+The standard browser flow is **create report → company information → materiality → metrics → choose
+questions or materials → generate → read/edit → check/export**. The qualitative paths are alternatives,
+not two mandatory consecutive steps. The profile requires a company registered name, industry category
+and reporting year before generation. Other inputs may be absent, subject to the preparation checks
+and export gate; missing evidence is not permission to invent facts.
 
-A fourth package, for the GRI Standards, is present but sealed: it is not selectable when creating
-a report. It was built against a route that needs wording changes before it can honestly claim
-conformance.
+### Knowledge packages
 
-## When it fits, and when it doesn't
+The following packages are bound to selectable report profiles in
+[backend/data/report_profiles.yaml](./backend/data/report_profiles.yaml):
 
-It fits if you are:
+| Package | Report language | Basis represented in the package |
+|---|---|---|
+| `sse_zh_hans` | Simplified Chinese | Mainland A-share sustainability reporting; the package exposes SSE, SZSE or BSE as the selected disclosure basis. |
+| `hkex_zh_hant` | Traditional Chinese | HKEX ESG Reporting Code, including its climate-related disclosure structure. |
+| `hkex_en` | English | The English counterpart of the HKEX package. |
 
-- an HKEX-listed issuer preparing its annual ESG report, including the Part D climate-related
-  disclosures;
-- an A-share company listed in Shanghai, Shenzhen or Beijing preparing a sustainability report
-  under its exchange's guideline, whether that report is mandatory for you or voluntary;
-- an unlisted company whose customer, bank or tender has asked for an ESG report — plenty of
-  companies write one for that reason rather than because a regulator did;
-- a consultant or accounting firm preparing drafts for clients.
-
-It does not fit if you need:
-
-- a report under CSRD / ESRS, or one prepared "in accordance with" the GRI Standards;
-- carbon accounting — it takes the emission figures you enter, Scope 1, 2 and 3 included, but does
-  not calculate emissions from activity data;
-- an assurance opinion or a compliance sign-off;
-- a hosted or multi-user service — it is a single-user application for your own machine.
-
-## Why not just hand the files to ChatGPT or another LLM
-
-A sustainability report is constrained by the standard it follows: which topics must be
-covered, what each topic has to disclose, which metrics need numbers. Handing every file to a
-model and asking for a report fails in two places — it writes things the company never did, and
-it misses disclosures the standard requires.
-
-Two constraints address that:
-
-- **Agents select material; they don't write prose.** A File Agent reads each document into a
-  summary; a Mapping Agent decides which materials a given chapter may draw on. Neither produces
-  report text. Prose is generated block by block, and each block only sees the facts assigned to
-  it.
-- **A deterministic gate stands before delivery.** Code — not a model — checks completeness and
-  consistency, and blocks the export with the location of anything that fails. The same report
-  always gets the same verdict.
-
-This is a workbench, not a one-click ESG report generator: you read the draft, revise it paragraph
-by paragraph, rewrite whole sections, and decide when it ships.
-
-## How it works
-
-Five preparation steps, then generate:
-
-1. **Company basics** (required) — company, reporting period and, for A-share reports, which
-   exchange's guideline is the basis
-2. **Materiality assessment** — decides which topics enter the report; the A-share package scores
-   financial and impact materiality separately (double materiality)
-3. **Quantitative metrics** — each with its unit and definition: greenhouse gas emissions, energy,
-   water, waste, workforce, health and safety, training, supply chain, anti-corruption and more
-4. **Guided topic questions**
-5. **Document upload** — policies, records and certificates as PDF, Word, Excel or PowerPoint
-   files (scanned PDFs need the optional OCR component)
-
-The last four can be left empty. After generation you get two Word files: a final version, and a
-review version carrying annotations about what still needs human confirmation.
-
-The repository ships a fully synthetic corpus — two fictional companies, no real business data —
-so you can run the whole flow end to end without supplying anything of your own.
-
-Edit any paragraph in place. The green dot marks what you changed, and the panel shows the
-difference from the generated draft:
-
-![A revised paragraph shown against the generated draft](./docs/images/report-revision.en.png)
-
-Before export, a deterministic gate — no model involved — lists what still needs attention:
-
-![The pre-export checks drawer](./docs/images/export-checks.en.png)
+The package manifests and content are in [backend/data/knowledge_packages](./backend/data/knowledge_packages).
+The GRI package (`gri_en`) is sealed and cannot be selected when creating a report. There is no
+standalone ISSB or CSRD/ESRS package. These are descriptions of the bundled implementation, not a
+claim that an exported report automatically satisfies a regulator's requirements.
 
 ## Architecture
 
-```
-Your input
-├─ Company basics (name, reporting period)          ┐
-├─ Topic materiality scoring (what enters the report)├─────────────┐
-├─ Quantitative metrics (emissions, workforce, waste)┘             │
-└─ Documents (policies, records, certificates)                     │
-        │                                                          │
-        ▼                                                          │
-   File Agent            material.file_agent                       │
-   reads each file → traceable dossier                             │
-        │                                                          │
-        ▼                                                          │
-   Mapping Agent         material.mapping_agent                    │
-   picks material per chapter; selects, never writes               │
-        │                                                          ▼
-   ┌──────────────────────────────────────────────────────────────────┐
-   │ Controlled evidence set — each block sees only its assigned facts │
-   └──────────────────────────────────────────────────────────────────┘
-        │
-        ▼
-   Block-by-block drafting   generation.blocks → generation.commit
-        │                            ▲
-        ▼                            │ blocking issue → back for revision
-   Diagnostic gate           delivery.export_gate
-        │
-        ▼
-   Final + review Word       delivery.docx.word / .review
-```
+The diagrams below describe the current code. Solid arrows show implemented calls or data flow;
+labels distinguish optional external services and API-only features.
 
-Paragraph-by-paragraph revision is optional and sits between drafting and the gate. Of the four
-inputs only company basics is required; the rest may be left empty, and the system adjusts what
-it writes rather than inventing filler.
+### 1. Runtime components
 
-Full detail in [docs/architecture.md](./docs/architecture.md).
-
-## FAQ
-
-### Is it free?
-
-Yes. The code is MIT-licensed. What you pay for is model usage — your API provider's charges, or
-your own hardware if you run the model yourself.
-
-### Which models does it work with?
-
-Azure OpenAI by default. Any OpenAI-compatible endpoint works without code changes, including a
-self-hosted vLLM or Ollama server, and DeepSeek, Qwen, GLM and Kimi (Moonshot) are registered out
-of the box. Output quality depends on the model you choose. See [SETUP.md](./SETUP.md).
-
-### Does my data leave my machine?
-
-Report data — the database, sign-in, uploaded files and exported documents — stays on your
-machine. The exception is the model: the text each drafting step needs is sent to the endpoint you
-configure. With a model running on your own machine, none of it leaves.
-
-### Does it support GRI, ISSB or CSRD?
-
-Not as a reporting basis. The HKEX packages follow the Code's Part D, whose climate-related
-disclosures are structured after IFRS S2, but there is no standalone ISSB (IFRS S1 / S2) package
-and no CSRD / ESRS package. The GRI package is sealed, as described above.
-
-### Can it write a report with no documents uploaded?
-
-Yes. Only company basics are required. Where materials or answers are missing, it adjusts what it
-writes rather than inventing filler, and the review version marks what still needs confirmation.
-
-### Is there a hosted version?
-
-No. It is self-hosted only, and it is not built to be exposed to a public network.
-
-### Can I add another exchange, standard or language?
-
-Yes — by adding a knowledge package; the generation pipeline stays as it is. See
-[docs/architecture.md](./docs/architecture.md).
-
-## Getting started
-
-See [SETUP.md](./SETUP.md). Short version, once the prerequisites are installed:
-
-```bash
-make supabase-up                        # local Postgres + auth
-cp backend/.env.example backend/.env    # fill from `supabase status`, add a model API key
-make verify                             # backend and frontend tests
-./scripts/dev/local-acceptance-stack.sh up   # starts backend, worker and frontend
+```mermaid
+flowchart LR
+  subgraph Local[Local machine]
+    UI["Browser / Next.js frontend :3000"]
+    API["FastAPI backend :8010"]
+    AUTH["Supabase Auth / local gateway :54321"]
+    DB[("Postgres :54322\nreport state and job queues")]
+    WORKER["Independent material.agent_worker"]
+    FILES["Local private files\nuploads and deliverables"]
+    PKG["Knowledge packages"]
+    TRACE["Local JSONL traces"]
+    UI -->|authenticated business requests| API
+    UI -->|sign in| AUTH
+    API --> DB
+    WORKER -->|claim jobs and commit results| DB
+    API --> FILES
+    WORKER --> FILES
+    PKG --> API
+    PKG --> WORKER
+    API --> TRACE
+    WORKER --> TRACE
+  end
+  API -->|generation or section operations| MODEL["Configured model provider"]
+  WORKER -->|File / Image / Mapping / drafting| MODEL
+  TRACE -. optional OTLP mirror .-> OTLP["Configured observability backend"]
 ```
 
-Prerequisites: Node 22, uv, Docker and the Supabase CLI — plus LibreOffice if you want table-of-
-contents page numbers computed at export time rather than by the reader. `make doctor` requires the
-four, and notes the optional ones.
+The backend talks to Postgres directly; the default install does not use PostgREST or Supabase
+Storage. Uploaded objects use local disk unless storage is explicitly reconfigured. The browser
+fetches public auth configuration from the backend; model keys and database credentials stay on the
+server. The worker handles file, image, mapping, whole-report and chapter jobs—starting only the UI
+and API does not consume those queues.
 
-**Set aside about 2.5 GB and 10–15 minutes.** The repository is small (~13 MB), but the container
-images and dependency trees are not, and most of that lands outside the project directory.
-[SETUP.md](./SETUP.md) breaks the figure down and lists the three optional components —
-LibreOffice, OCR and the Playwright browsers — that you can skip.
+Sources: [worker](./backend/src/sustainability_desk/material/agent_worker.py),
+[persistence configuration](./backend/src/sustainability_desk/persistence/settings.py),
+[browser authentication](./frontend/lib/supabase.ts).
 
-Supabase here is **not a cloud account** — it runs Postgres and auth in local Docker containers
-on your own machine. What the database holds never leaves it, and there is nothing to sign up
-for.
+### 2. Evidence, drafting and delivery
 
-## For coding agents
-
-Run these in order. Each step either succeeds or fails loudly; do not skip ahead.
-
-```bash
-make doctor                                  # verifies Node 22+, uv, Docker, Supabase CLI
-make supabase-up                             # must finish before any test run
-cp backend/.env.example backend/.env         # then fill JWT_SECRET, SERVICE_ROLE_KEY, ANON_KEY from `supabase status`
-                                             # and one model key (Azure OpenAI, or any OpenAI-compatible endpoint)
-make verify                                  # backend pytest + frontend test/lint/build
-make install-hooks                           # pre-push runs make verify
+```mermaid
+flowchart TD
+  BASIS["Report profile and knowledge package"] --> INPUT["Company basics / materiality / metrics"]
+  INPUT --> CHOICE{"Qualitative input path"}
+  CHOICE --> QUESTIONS["Topic answers"]
+  CHOICE --> UPLOAD["PDF / DOCX / XLSX / PPTX"]
+  UPLOAD --> PARSE["Local parsers / optional scanned-page OCR"]
+  PARSE --> FILEAGENT["File Agent: dossier per source"]
+  FILEAGENT --> MAPPING["Mapping Agent: select evidence for each scope"]
+  QUESTIONS --> CONTEXT["Controlled block context"]
+  MAPPING --> CONTEXT
+  INPUT --> CONTEXT
+  CONTEXT --> DRAFT["Generate blocks and tables"]
+  DRAFT --> STATE["Commit structured report state"]
+  STATE --> EDIT["Read, inspect sources and revise"]
+  EDIT --> GATE{"Deterministic export gate"}
+  GATE -->|blocking issue| EDIT
+  GATE -->|allowed| WORD["Formal DOCX / review DOCX"]
 ```
 
-Then create the first account and start the stack:
+File and Mapping agents prepare/select evidence rather than authoring the final report. Drafting
+consumes that evidence with the structured inputs. State is persisted in Postgres and rebuilt into
+`Report` / `Section` / `Block` objects; the browser document and export are projections of that
+structured report. Source traces support review, but neither model output nor an external Word file
+bypasses the normal write path or guarantees factual accuracy.
 
-```bash
-make provision-owner ARGS="--email you@example.com"        # dry run: prints what it would do
-SUSTAINABILITY_DESK_OWNER_PASSWORD='<12+ chars, mixed case and digits>' \
-SUSTAINABILITY_DESK_CONFIRM_PROVISION_OWNER=YES \
-  make provision-owner ARGS="--email you@example.com --apply"
-./scripts/dev/local-acceptance-stack.sh up   # backend :8010, worker, frontend :3000
+Sources: [material pipeline](./backend/src/sustainability_desk/material/agent_pipeline.py),
+[report generation](./backend/src/sustainability_desk/lightweight_report_generation.py),
+[report revision assembly](./backend/src/sustainability_desk/contract/report_revision.py),
+[Word renderer](./backend/src/sustainability_desk/export/docx_renderer.py).
+
+### 3. Chapter batches — backend API and worker
+
+```mermaid
+sequenceDiagram
+  participant Client as Authenticated API client
+  participant API as Chapter endpoints
+  participant DB as Postgres state and ledger
+  participant Worker as Queue worker
+  participant Section as Existing section generation
+  Client->>API: Queue chapter with base state sequence
+  API->>DB: Read state, validate scope, enqueue run
+  API-->>Client: Run identifier and progress
+  Worker->>DB: Claim chapter run
+  loop Selected sections in document order
+    Worker->>DB: Read latest report snapshot
+    Worker->>Section: Reserve and generate section
+    Section->>DB: Atomically commit successful section
+    Worker->>DB: Update chapter step progress
+  end
+  Worker->>DB: Record final batch status
+  Client->>API: Poll progress or request cancellation
+  API->>DB: Read progress or record cancel request
 ```
 
-Four things that will waste your time if you do not know them:
+A chapter is a top-level H1 section with its descendants. The chapter ledger stores lifecycle
+(`draft`, `reviewing`, `locked`) and generation metadata, not a second copy of report prose. A batch
+can continue missing sections, rewrite all generatable sections, or process an explicit section list.
+Successful sections remain committed if a later section fails; the batch can finish `partial`.
+Cancellation is checked between sections. Locking prevents new chapter batches; it is not a global
+read-only lock on every editing endpoint.
 
-- **`make verify` before `make supabase-up` gives a false green.** Persistence tests call
-  `pytest.skip` when the database is unreachable, so the suite passes without ever exercising
-  the database layer. Start the stack first.
-- **The worker is not optional.** Material processing and report generation are Postgres queues
-  consumed by a separate process. Without it the UI works and generation waits forever.
-- **LibreOffice is optional.** Without it the table of contents still works; its page numbers are
-  resolved by whatever opens the document rather than fixed at export.
-- **Open `http://localhost:3000`, not `127.0.0.1`.** The Next dev server rejects other origins
-  and the page stalls on an auth error.
+The eight routes are implemented in [api/app.py](./backend/src/sustainability_desk/api/app.py):
 
-No account can be created from the UI — sign-up is deliberately closed, so
-`make provision-owner` is the only path to the first login.
+| Method | Path below `/api/reports/{report_id}` | Purpose |
+|---|---|---|
+| GET | `/chapters` | Derived chapter board and latest run |
+| POST | `/chapters/{chapter_key}/generations` | Queue a chapter batch |
+| GET | `/chapters/{chapter_key}/generations/{run_id}` | Poll progress |
+| POST | `/chapters/{chapter_key}/generations/{run_id}/cancel` | Request cancellation |
+| PATCH | `/chapters/{chapter_key}` | Change lifecycle |
+| GET | `/chapters/{chapter_key}/workcopy` | Markdown and manifest |
+| GET | `/chapters/{chapter_key}/workcopy.docx` | Download a DOCX work copy |
+| POST | `/chapters/{chapter_key}/workcopy/revisions` | Read a returned DOCX and produce proposals |
 
-Working on the code: read [CLAUDE.md](./CLAUDE.md) first (rules, invariants, what not to
-change), then [docs/architecture.md](./docs/architecture.md). `AGENTS.md` is a byte-identical
-copy for tools that look for that name.
+See [chapter orchestration](./backend/src/sustainability_desk/chapter_generation.py),
+[chapter persistence](./backend/src/sustainability_desk/persistence/chapter_generations.py) and
+[contracts](./backend/src/sustainability_desk/contract/chapter_generation.py). The browser currently
+uses whole-report generation and section rewriting, not these chapter endpoints.
 
-Verify a change end to end without calling any model:
+### 4. Chapter work-copy round trip
 
-```bash
-cd backend && uv run pytest tests/test_local_e2e_fixture_corpora.py
+```mermaid
+flowchart LR
+  STATE["Authoritative structured report"] --> SNAP["Chapter Markdown / manifest / server snapshot"]
+  SNAP --> GEN["GenOffice CLI"]
+  GEN --> DOCX["Editable chapter DOCX"]
+  DOCX --> REVIEW["Human review outside the app"]
+  REVIEW --> READ["GenOffice read-back"]
+  SNAP --> DIFF["Compare paragraphs with export snapshot"]
+  READ --> DIFF
+  DIFF --> PROPOSAL["Modified / added / removed proposals"]
+  PROPOSAL -. requires review and ordinary edit flow .-> STATE
 ```
 
-It drives the built-in synthetic corpus through the real input path and renders a Word file.
+This is a collaboration artifact, separate from formal report export. GenOffice must be installed
+separately and available on PATH, or selected with `SUSTAINABILITY_DESK_GENOFFICE_CLI`. Without it,
+Markdown remains available but DOCX work-copy operations return a service-unavailable response.
+The current comparison covers body paragraphs; it does not round-trip structural edits to headings,
+tables or images. Proposals do not automatically update the report, and the frontend has no
+work-copy import/adoption screen. Implementation:
+[export/chapter_workcopy.py](./backend/src/sustainability_desk/export/chapter_workcopy.py).
 
-## Stack
+## Module map
 
-| Layer | What |
+| Location | Responsibility |
 |---|---|
-| Backend | Python / FastAPI, Postgres queue with a separate worker |
-| Frontend | Next.js |
-| Storage & auth | Supabase (Postgres + Auth); uploaded files and deliverables stay on local disk |
-| Export | python-docx for rendering; LibreOffice optionally pre-computes TOC page numbers |
-| Models | Azure OpenAI by default; any OpenAI-compatible endpoint works without code changes |
+| [frontend/app](./frontend/app), [frontend/components](./frontend/components) | Login, report list, intake pages, material processing, generation progress and report editing. |
+| [frontend/lib](./frontend/lib) | API clients, auth, state synchronization, generated contracts and UI translations. |
+| [backend/src/sustainability_desk/api](./backend/src/sustainability_desk/api) | Authenticated account/report/material/structured-input/generation endpoints; chapter routes are in app.py. |
+| [contract](./backend/src/sustainability_desk/contract), [assets](./backend/src/sustainability_desk/assets) | Report schema, knowledge-package loading, scope/visibility rules and spreadsheet parsing/templates. |
+| [material](./backend/src/sustainability_desk/material), [llm](./backend/src/sustainability_desk/llm) | Local document intake, File/Image/Mapping agents, controlled model context, model registry and drafting. |
+| [persistence](./backend/src/sustainability_desk/persistence), [accounts](./backend/src/sustainability_desk/accounts) | State, optimistic concurrency, queues/leases, private storage and the local account entitlement. |
+| [export](./backend/src/sustainability_desk/export), [observability](./backend/src/sustainability_desk/observability) | Word/figure rendering, chapter work copies and registered runtime-stage traces. |
+| [backend/data](./backend/data) | Knowledge packages, report profiles, entitlements and handbook assets. |
+| [supabase](./supabase), [scripts/dev](./scripts/dev), [hooks](./hooks) | Local stack configuration, SQL baseline, process management and pre-push verification. |
+| [backend/tests](./backend/tests), [frontend/e2e](./frontend/e2e) | Backend regression/synthetic corpora and browser acceptance tests; frontend unit tests sit beside source files. |
 
-## License
+Knowledge packages contain the report contract, topic registry, qualitative questions, quantitative
+catalogue, standard-disclosure mappings, prompts and Word formatting. Adding a package also requires
+profile registration and validation; copying a language label alone does not implement a standard.
+The main stack is Python 3.12+ / FastAPI / asyncpg / Pydantic AI, Next.js 16 / React 19, local
+Supabase Postgres + Auth, and python-docx. There is no packaged Electron application in this repository.
 
-MIT. See [LICENSE](./LICENSE).
+## Run locally
 
-Generation quality depends on calibration, and calibration is specific to each firm's house
-style and review standards. If you want help building an evaluation setup for your own
-reports, or AI engineering support more broadly, get in touch — Dexter Yao,
-dexter.yao23@gmail.com
+Commands below are for a fresh checkout, from the repository root. Install Node.js 22+, uv,
+Docker with its daemon running, and Supabase CLI first. The backend requires Python 3.12+.
+[SETUP.md](./SETUP.md) covers additional installation details.
 
-Clause numbers and metric names are cited as fact; the wording of disclosure requirements is
-rewritten rather than copied from official texts.
+```bash
+git clone https://github.com/18zxh/ESG-Disclosure-Tool.git
+cd ESG-Disclosure-Tool
+make doctor
+uv sync --frozen --project backend
+(cd frontend && npm ci)
+make supabase-up
+cp backend/.env.example backend/.env
+```
+
+Edit backend/.env before proceeding. Populate the JWT secret, service-role key and public anon key
+from `supabase status`; the template already carries local database/auth addresses. Keep this file
+out of Git. Configure Azure credentials for the default pipeline, or see the model-selection limits
+below. Do not overwrite an existing local configuration when repeating setup.
+
+Create the first account (there is no public signup screen):
+
+```bash
+make provision-owner ARGS="--email you@example.com"   # dry run
+# Set your own password: at least 12 characters, upper/lowercase letters and digits.
+export SUSTAINABILITY_DESK_OWNER_PASSWORD='ReplaceWithYourOwnPassword123'
+export SUSTAINABILITY_DESK_CONFIRM_PROVISION_OWNER=YES
+make provision-owner ARGS="--email you@example.com --apply"
+unset SUSTAINABILITY_DESK_OWNER_PASSWORD SUSTAINABILITY_DESK_CONFIRM_PROVISION_OWNER
+```
+
+Then start the application:
+
+```bash
+./scripts/dev/local-acceptance-stack.sh up
+./scripts/dev/local-acceptance-stack.sh status
+# Open http://localhost:3000 and sign in with the account you created.
+# Later:
+./scripts/dev/local-acceptance-stack.sh down
+make supabase-down
+```
+
+Alternatively run `make dev-backend`, `make dev-worker` and `make dev-frontend` in three terminals.
+The startup script is a local development/acceptance helper, not a hosted deployment service.
+It stops its own application processes; Supabase is managed separately. The worker can make real,
+billable model requests once material processing or generation is triggered.
+
+### Models and optional tools
+
+The model registry is [llm/model_registry.py](./backend/src/sustainability_desk/llm/model_registry.py).
+It contains Azure OpenAI and OpenAI-compatible Chat Completions providers, including vendor presets.
+The registered default `luna` uses an Azure deployment; it is not a deployment created for you by
+installation.
+
+Whole-report generation accepts a configured, selectable model. For a compatible provider, set:
+
+```dotenv
+OPENAI_COMPAT_API_KEY=<your-provider-key>
+OPENAI_COMPAT_BASE_URL=<your-compatible-endpoint>
+OPENAI_COMPAT_MODEL_NAME=<your-model-name>
+SUSTAINABILITY_DESK_DEFAULT_MODEL_ID=openai-compatible
+```
+
+**That setting is not a global provider switch.** File/Image/Mapping defaults and chapter/section
+operations still have paths bound to the registry's Azure default in
+[agent_pipeline.py](./backend/src/sustainability_desk/material/agent_pipeline.py) and
+[api/app.py](./backend/src/sustainability_desk/api/app.py). Configuring a compatible report-generation
+model alone does not make every material or chapter operation use it. The endpoint must support the
+structured-output/tool-call behavior required by the selected model specification.
+
+| Optional dependency | What it enables |
+|---|---|
+| OCR extras: `uv sync --project backend --extra ocr` | Scanned PDF page recognition. |
+| LibreOffice with usable Chinese fonts | TOC page numbers computed during formal export; otherwise Word resolves fields when opened. |
+| GenOffice CLI | Chapter DOCX work-copy export and read-back APIs; Markdown and formal report rendering use separate paths. |
+| Playwright Chromium | Browser acceptance tests, installed from frontend with `npx playwright install chromium`. |
+
+## Verification and operating limits
+
+```bash
+make supabase-up
+make verify          # backend pytest + frontend tests, lint and production build
+make install-hooks   # pre-push enforces the verification chain
+# Backend lint is separate; this is the version used for the current local validation:
+uvx --from ruff==0.12.12 ruff check backend/src backend/tests
+# Synthetic input/Word checks without real model requests:
+(cd backend && uv run pytest tests/test_local_e2e_fixture_corpora.py)
+```
+
+Start Supabase before tests: persistence tests skip if the database is unavailable. The
+[CI workflow](./.github/workflows/verify.yml) runs a subset of backend checks (excluding the main Word
+render test file, with persistence tests skipped when no database is present), plus frontend tests,
+lint and build. A green CI run is not evidence of real model generation or a full browser journey.
+
+- This is a local single-user application with one entitlement profile, not a public SaaS or a
+  live multi-user collaboration service. The account tables are infrastructure, not a registration
+  or billing product.
+- Database/files stay local by default. Content needed for model processing is sent to the configured
+  provider. Optional OTLP export can also send trace content to the configured backend; local traces
+  may contain company material and must be treated as sensitive.
+- Report drafting and diagnostics do not constitute assurance, carbon accounting or a compliance
+  guarantee. Review the evidence, model output and final Word before use.
+- The bundled company corpora are synthetic. Automated checks do not replace a real-provider,
+  browser and document-layout acceptance run for your own configuration.
+
+Further details: [architecture](./docs/architecture.md), [schema](./docs/schema-contract.md),
+[model context](./docs/context-engineering.md), [account system](./docs/account-system.md),
+[handbook](./docs/handbook/README.md). Coding agents should read [AGENTS.md](./AGENTS.md).
+
+## License and origin
+
+MIT; see [LICENSE](./LICENSE). The upstream project is
+[Dexter-Yao/sustainability-workbench](https://github.com/Dexter-Yao/sustainability-workbench),
+copyright 2026 Dexter Yao. This repository retains that attribution and documents its current
+implementation rather than treating the upstream README as a feature specification.
