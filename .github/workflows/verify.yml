@@ -1,0 +1,55 @@
+# ABOUTME: CI 跑不依赖本机栈的部分：前端全量、后端非持久化非导出用例、前端 lint。
+# ABOUTME: 持久化用例需要 Supabase 栈，按 SETUP.md 在本机跑；Word 导出用例暂未纳入 CI，原因见 pytest 步骤。
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      # 占位凭据：只为让模型对象能构造出来。受此影响的用例只断言 Agent 未暴露
+      # 领域改写工具（tests/test_material_mapping_agent.py），不发出任何请求。
+      # 真实调用的用例本就不在 CI 跑。
+      AZURE_OPENAI_API_KEY: ci-placeholder-not-a-real-key
+      AZURE_OPENAI_ENDPOINT: https://example.invalid/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --project backend
+      - name: pytest
+        working-directory: backend
+        # Word export tests (test_docx_render.py) stay out of CI for now. Since LibreOffice became
+        # optional they no longer need it: without a runnable engine they take the reader-resolved TOC
+        # path and pass locally. They have not run on a Linux runner yet, and the runner lacks CJK fonts
+        # (charts would log missing-glyph warnings), so including them means installing fonts-noto-cjk
+        # and getting a first green run. The pre-computed TOC path cannot be verified here at all: with
+        # libreoffice-writer installed, headless rendering never finds body page 1 (measured in CI).
+        # Persistence tests call pytest.skip("本地 Supabase 栈未启动") here and are not claimed as verified.
+        run: uv run pytest -q --ignore=tests/test_docx_render.py
+      # 刻意不在 CI 跑 ruff：本仓没有 [tool.ruff] 配置，也没把 ruff 列进依赖，
+      # 「干净」这个结论一直是相对某个本机版本成立的（0.12 通过，0.16 报 675 条，
+      # 差异全是两版之间新增的默认规则）。CI 拉不固定版本等于凭空引入一套本项目
+      # 从未采纳的标准。要让它进 CI，得先定版本、写配置、清一次存量——那是独立的事。
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
