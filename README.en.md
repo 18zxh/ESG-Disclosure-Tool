@@ -12,6 +12,54 @@ questionnaire answers or uploaded documents, AI drafting, paragraph revision and
 branch also includes a **backend chapter-authoring layer**: a chapter ledger, queued chapter batches,
 and chapter work-copy export/read-back. Those chapter APIs are **not yet connected to the frontend**.
 
+## Main differences from the upstream project
+
+**This derivative keeps the upstream reporting pipeline and adds a chapter-level work unit: cross-section orchestration, chapter state, and chapter work-copy handover.**
+These additions currently live in backend APIs and the worker. The browser still centers on whole-report
+generation, document editing and individual-section rewriting.
+
+Comparison baseline: upstream [7ac19a7](https://github.com/Dexter-Yao/sustainability-workbench/commit/7ac19a78efb29be7dca60124752578dc4fc43cde)
+(2026-09-28; still upstream main when checked on 2026-10-19). “Upstream” below means that pinned
+commit; a later upstream release needs a fresh comparison.
+
+### Functional differences
+
+| Area | Upstream Sustainability Workbench | This derivative: ESG Disclosure Tool | Available through |
+|---|---|---|---|
+| Core reporting | Company inputs, materiality, metrics, questions / materials, AI drafting, source inspection and Word delivery already exist | Retains the pipeline and its data contracts | Existing browser UI; inherited capability |
+| Generation work unit | Whole-report generation and individual-section rewriting, with atomic section commits | Adds batches across the sections of a top-level H1 chapter; continue missing sections, rewrite the chapter, or select sections | New chapter APIs; not wired to the frontend |
+| Chapter management | No independent chapter ledger or chapter-run ledger | Adds completion, freshness, draft / reviewing / locked lifecycle, progress, idempotency and cancellation | Backend chapter-board and run APIs |
+| Failure across sections | Existing section commit boundaries; no chapter-batch verdict | Commits sections in order, preserves earlier successes if a later section fails, and records partial completion | Worker and batch-progress APIs |
+| Chapter work copies | Primarily whole-report formal and review documents | Adds chapter Markdown, a manifest and GenOffice DOCX work copies, separate from formal delivery | Backend work-copy APIs; DOCX requires GenOffice |
+| External-edit read-back | No equivalent chapter work-copy round trip | Compares a returned DOCX with its export snapshot and returns paragraph modifications, additions and removals | Backend API; no automatic adoption or frontend adoption screen |
+| Standards, languages and models | Mainland/HKEX knowledge packages, Chinese/English reports, Azure and compatible model registration already exist | Reuses those foundations; adds no standards package or universal provider switch | Subject to the package and model limits below |
+| Documentation | English default README, with Chinese README and architecture documents already present | Chinese default homepage, preserved English, explicit differences and four Mermaid architecture views | Documentation improvement, not a new business feature |
+
+### Enhancements and fixes
+
+This branch also synchronizes the login-page locale with server rendering, adjusts button/download
+presentation and stabilizes network-error copy. The new work-copy route adds path validation, a
+32 MB read-back upload limit and nonblocking subprocess calls; backend responses gain MIME-sniffing
+and referrer-policy controls. These are targeted changes, not a comprehensive security audit.
+Additional fixes cover test aliases in Unicode/space-containing paths, a model-structure test that
+required real credentials, and an undefined variable when continuing a completed chapter.
+
+The core additions are inspectable in [chapter planning](./backend/src/sustainability_desk/contract/chapter_plan.py),
+[chapter orchestration](./backend/src/sustainability_desk/chapter_generation.py),
+[chapter persistence](./backend/src/sustainability_desk/persistence/chapter_generations.py) and
+[work-copy round trips](./backend/src/sustainability_desk/export/chapter_workcopy.py).
+Knowledge packages, File / Mapping agents, block drafting, formal/review delivery and section rewriting
+are inherited from upstream and are not presented as original additions by this branch.
+
+### When to use this derivative
+
+The new backend is useful when integrating chapter jobs, chapter progress or external Word work-copy
+handover through APIs. A browser workflow covering chapter boards, chapter drafting, work-copy upload
+and revision adoption still needs frontend integration. Upstream already covers the basic whole-report
+workflow; this branch provides no comparative experiment demonstrating better generation quality.
+Work-copy comparison currently handles body paragraphs, not structural changes to headings, tables
+or images, and it does not provide live multi-user collaboration.
+
 ## What is available
 
 | Capability | Current implementation |
